@@ -120,7 +120,7 @@ async def create_payment(request: Request):
                     "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
                     "confirmation": {
                         "type": "redirect",
-                        "return_url": "https://t.me/WBerriesSeller_bot"
+                        "return_url": "https://t.me/@wbsellerrs_bot"
                     },
                     "capture": True,
                     # "test": False,
