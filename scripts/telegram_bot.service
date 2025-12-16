@@ -1,0 +1,19 @@
+[Unit]
+Description=Telegram Bot Service
+After=network.target
+
+[Service]
+User=appuser
+Group=appuser
+WorkingDirectory=/opt/my_project
+EnvironmentFile=/opt/my_project/.env
+ExecStart=/opt/my_project/venv/bin/python main/main.py
+Restart=always
+RestartSec=3
+
+# Логи
+StandardOutput=append:/var/log/telegram_bot.log
+StandardError=append:/var/log/telegram_bot_error.log
+
+[Install]
+WantedBy=multi-user.target

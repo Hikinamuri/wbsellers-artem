@@ -1,0 +1,27 @@
+[Unit]
+Description=FastAPI Backend Service
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+User=appuser
+Group=appuser
+WorkingDirectory=/opt/my_project
+EnvironmentFile=/opt/my_project/.env
+
+# Важно: используем gunicorn для продакшена
+ExecStart=/opt/my_project/venv/bin/gunicorn \
+    --workers 4 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    backend.backend:app
+
+Restart=always
+RestartSec=3
+
+# Логи
+StandardOutput=append:/var/log/backend.log
+StandardError=append:/var/log/backend_error.log
+
+[Install]
+WantedBy=multi-user.target
