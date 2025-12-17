@@ -27,7 +27,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(BOT_TOKEN)
 
-CHANNEL_ID = "@ekzoskidki" 
+CHANNEL_ID = "@testwbbot_chanel" 
 TELEGRAM_PROVIDER_TOKEN=os.getenv("TELEGRAM_PROVIDER_TOKEN")
 PENDING_MESSAGES: dict[str, dict] = {}
 YK_PENDING: dict[str, dict] = {}
@@ -120,11 +120,11 @@ async def create_payment(request: Request):
                     "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
                     "confirmation": {
                         "type": "redirect",
-                        "return_url": "https://t.me/@wbsellerrs_bot"
+                        "return_url": "https://t.me/wbsellerrs_bot"
                     },
                     "capture": True,
-                    # "test": False,
-                    "test": True,
+                    "test": False,
+                    # "test": True,
                     "description": description,
                     "metadata": safe_meta,
                     "expires_at": expires_at_iso,        

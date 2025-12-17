@@ -24,9 +24,9 @@ WEB_APP_URL = "https://wb-artem.vercel.app/"
 # WEB_APP_URL = "https://wb-miniapp-demo.loca.lt"
 # BACKEND_URL = "http://127.0.0.1:8000"
 BACKEND_URL = "https://api.zepovvv.ru"
-SUPPORT_USERNAME = "@ekzoskidki7"
+SUPPORT_USERNAME = "@daighj2"
 # CHANNEL_ID = '@wbsellers_test'
-CHANNEL_ID = '@ekzoskidki'
+CHANNEL_ID = '@testwbbot_chanel'
 PENDING_MESSAGES = {}
 SENT_INVOICES = {}   
 
