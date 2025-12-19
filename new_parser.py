@@ -59,7 +59,6 @@ class WBParser:
                                 continue
 
                     images: List[str] = []
-                    # Попытки собрать URL-ы картинок, если они уже полные
                     for key in ("images", "imt_images", "pics", "gallery", "media", "mediaFiles"):
                         val = data.get(key)
                         if isinstance(val, list):
@@ -73,8 +72,7 @@ class WBParser:
                         elif isinstance(val, str) and val.startswith(("http://", "https://")):
                             images.append(val)
 
-                    # очистка дубликатов
-                    images = [u for i, u in enumerate(images) if images.index(u) == i]
+                    images = list(dict.fromkeys(images))  # убираем дубликаты, сохраняя порядок
 
                     return {
                         "name": name,
@@ -89,105 +87,84 @@ class WBParser:
         return {}
 
     async def _check_url_is_image(self, url: str, timeout: float = 5.0) -> bool:
-        """
-        Проверка доступности URL-а картинки.
-        Сначала делает HEAD, если HEAD отвечает неудачно — пытает GET с небольшим таймаутом и только заголовки.
-        """
         if not self.session:
             await self.setup()
         try:
-            # HEAD
             async with self.session.head(url, timeout=timeout, allow_redirects=True) as resp:
                 if resp.status == 200:
                     ctype = resp.headers.get("Content-Type", "")
-                    if ctype and ("image" in ctype or "webp" in ctype):
+                    if ctype and "image" in ctype:
                         return True
-                    # иногда WB отвечает без content-type, но статус 200 — считаем рабочим
-                    return True
+                    return True  # WB часто без content-type
         except Exception:
-            # попробуем GET, но не читаем тело полностью
             try:
                 async with self.session.get(url, timeout=timeout, allow_redirects=True) as resp:
                     if resp.status == 200:
-                        ctype = resp.headers.get("Content-Type", "")
-                        if ctype and ("image" in ctype or "webp" in ctype or "jpeg" in ctype or "jpg" in ctype):
-                            return True
-                        # если нет content-type — всё равно принимаем 200
                         return True
             except Exception:
                 return False
         return False
     
     async def _find_valid_images(
-        self, articul: str, candidate_idxs: List[int] = None, max_images: int = 2
+        self, articul: str, candidate_idxs: List[int] = None, max_images: int = 3
     ) -> List[str]:
+        """
+        Актуальный поиск изображений на images.wbstatic.net (декабрь 2025)
+        Формат: /big/new/12340000/123456789-1.jpg
+        """
         if not self.session:
             await self.setup()
 
         if candidate_idxs is None:
             candidate_idxs = list(range(1, max_images + 1))
 
-        base_domains = [
-            "https://images.wbstatic.net",
-        ]
-        
+        domain = "https://images.wbstatic.net"
+
+        # Приоритет: большие размеры + jpg
         size_folders = [
-            "big/new",          # лучшие, большие
-            "tm/new",           # тоже хорошие
+            "big/new",
+            "tm/new",
             "c516x688/new",
             "c246x328/new",
-            "new",              # просто /new/
             "big",
             "tm",
             "c516x688",
             "c246x328",
-        ]
-        
-        extensions = ["jpg", "webp"]
-        
-        path_variants = [
-            (articul[:4], articul[:6]),
-            (articul[:3], articul[:5]),
+            "new",
         ]
 
-        est_urls = []
+        extensions = ["jpg", "webp"]  # jpg чаще работает
+
         nm_id = str(articul)
-        for domain in base_domains:
-            for folder in size_folders:
-                for ext in extensions:
-                    img_path = f"{folder}/{nm_id[:4]}0000/{nm_id[:5]}000/{nm_id}/{1}.{ext}"
-                    full_url = f"{domain}/{img_path}"
-                    test_urls.append((full_url, domain, folder, ext))
+        vol_bucket = nm_id[:4] + "0000"  # 12340000 для 123456789
 
-        async def check_candidate(url_info):
-            url, domain, folder, ext = url_info
+        test_urls: List[tuple] = []
+        for folder in size_folders:
+            for ext in extensions:
+                img_path = f"{folder}/{vol_bucket}/{nm_id}-1.{ext}"
+                full_url = f"{domain}/{img_path}"
+                test_urls.append((full_url, folder, ext))
+
+        async def check_candidate(info):
+            url, folder, ext = info
             if await self._check_url_is_image(url, timeout=2.5):
-                return url_info
+                return (folder, ext)
             return None
 
-        results = await asyncio.gather(
-            *[check_candidate(info) for info in test_urls],
-            return_exceptions=True
-        )
+        results = await asyncio.gather(*[check_candidate(info) for info in test_urls])
 
         valid = next((r for r in results if r), None)
         if not valid:
-            logger.warning(f"⚠️ Не найдено изображений по новым путям для {articul}, fallback на старый")
-            # fallback на ваш старый метод или просто пустой список
-            return []
+            logger.warning(f"⚠️ Не удалось найти изображения на images.wbstatic.net для {articul}")
+            return []  # fallback на card.json в parse_product
 
-        url, domain, folder, ext = valid
-        logger.info(f"🖼️ Найден актуальный CDN: {domain}/{folder}/*. {ext} для {articul}")
+        folder, ext = valid
+        logger.info(f"🖼️ Найден CDN для {articul}: {domain}/{folder}/*-{ext}")
 
-        # Строим все нужные картинки
-        images = []
-        base_path = f"{domain}/{folder}/{nm_id[:4]}0000/{nm_id[:5]}000/{nm_id}/"
-        for idx in candidate_idxs:
-            img_url = f"{base_path}{idx}.{ext}"
-            images.append(img_url)
+        base_path = f"{domain}/{folder}/{vol_bucket}/{nm_id}-"
+        images = [f"{base_path}{i}.{ext}" for i in candidate_idxs]
 
         return images[:max_images]
-
 
     async def parse_api_detail(self, articul: str) -> Dict[str, Any]:
         if not self.session:
@@ -214,13 +191,9 @@ class WBParser:
         p = products[0]
         sizes = p.get("sizes") or []
 
-        logger.info(f"💰 WB RAW: salePriceU={p.get('salePriceU')}, priceU={p.get('priceU')} | sizes_count={len(sizes)}")
-
-        # --- Цены ---
+        # --- Цены --- (без изменений)
         sale_price = 0.0
         basic_price = 0.0
-
-        # 1️⃣ Стандартные поля
         try:
             sale_u = p.get("salePriceU")
             price_u = p.get("priceU")
@@ -231,7 +204,6 @@ class WBParser:
         except Exception:
             pass
 
-        # 2️⃣ Fallback — если верхних полей нет
         if not sale_price or not basic_price:
             for s in sizes:
                 price_info = s.get("price") or {}
@@ -239,33 +211,30 @@ class WBParser:
                     sale_price = float(price_info.get("product", 0)) / 100.0
                     basic_price = float(price_info.get("basic", 0)) / 100.0
                     if sale_price:
-                        logger.info(f"💰 Fallback price from sizes: {sale_price}/{basic_price}")
                         break
 
         discount = int(100 - (sale_price / basic_price * 100)) if basic_price else 0
 
-        # --- Остатки ---
+        # --- Остатки --- (без изменений)
         stocks_by_size: List[Dict[str, Any]] = []
         for s in sizes:
             qty = 0
             for st in s.get("stocks", []):
-                try:
-                    qty += int(st.get("qty", 0))
-                except Exception:
-                    pass
+                qty += int(st.get("qty", 0) or 0)
             stocks_by_size.append({
                 "size": s.get("name") or "",
                 "qty": qty
             })
         total_stocks = sum(i["qty"] for i in stocks_by_size)
 
-        # --- Изображения ---
-        images: List[str] = []
+        # --- Изображения --- теперь минимум 3
         pics_count = int(p.get("pics") or 0)
-        if pics_count > 0:
-            images = await self._find_valid_images(articul, candidate_idxs=list(range(1, min(pics_count, 3) + 1)))
-        else:
-            images = await self._find_valid_images(articul, candidate_idxs=[1, 2], max_images=2)
+        need_count = max(pics_count, 3) if pics_count > 0 else 3
+        images = await self._find_valid_images(
+            articul,
+            candidate_idxs=list(range(1, need_count + 1)),
+            max_images=need_count
+        )
 
         result = {
             "id": p.get("id") or int(articul),
@@ -291,9 +260,6 @@ class WBParser:
         return result
 
     async def parse_product(self, url: str) -> Dict[str, Any]:
-        """
-        Основной метод: объединяем card.json и API (api_data имеет приоритет).
-        """
         articul = self.extract_articul(url)
         if not articul:
             return {"success": False, "error": "Не удалось извлечь артикул из URL", "url": url}
@@ -314,15 +280,14 @@ class WBParser:
             "id": int(api_data.get("id") or articul),
         })
 
-        # если нет images из API — берем из card.json
-        if not merged.get("images") and card_data.get("images"):
-            merged["images"] = card_data.get("images")
+        # Если API не нашёл изображения — берём из card.json (там иногда полные URL)
+        if not merged.get("images") or len(merged.get("images", [])) == 0:
+            if card_data.get("images"):
+                merged["images"] = card_data["images"]
+                logger.info(f"🔄 Использованы изображения из card.json ({len(merged['images'])})")
 
         if merged.get("supplier") and not merged.get("seller"):
             merged["seller"] = merged.get("supplier")
-
-        # можно удалить сырые данные, если не нужно
-        # merged.pop("raw_product", None)
 
         return merged
 

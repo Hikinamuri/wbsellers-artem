@@ -593,7 +593,7 @@ async def add_product_to_db(
     scheduled_date: str,
     category: str = None, 
 ):
-    from backend.new_parser import parse_wb_product_api  # локальный импорт
+    from new_parser import parse_wb_product_api  # локальный импорт
 
     async for session in get_session():
         result = await session.execute(select(User).where(User.tg_id == str(user_id)))
