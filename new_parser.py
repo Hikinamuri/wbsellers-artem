@@ -121,85 +121,79 @@ class WBParser:
     async def _find_valid_images(
         self, articul: str, candidate_idxs: List[int] = None, max_images: int = 2
     ) -> List[str]:
-        """
-        Проверяет все известные CDN (асинхронно и конкурентно),
-        возвращает реально существующие картинки.
-        """
         if not self.session:
             await self.setup()
 
         if candidate_idxs is None:
             candidate_idxs = list(range(1, max_images + 1))
 
-        # Схемы: сначала новая, потом старая
+        base_domains = [
+            "https://images.wbstatic.net",
+        ]
+        
+        size_folders = [
+            "big/new",          # лучшие, большие
+            "tm/new",           # тоже хорошие
+            "c516x688/new",
+            "c246x328/new",
+            "new",              # просто /new/
+            "big",
+            "tm",
+            "c516x688",
+            "c246x328",
+        ]
+        
+        extensions = ["jpg", "webp"]
+        
         path_variants = [
             (articul[:4], articul[:6]),
             (articul[:3], articul[:5]),
         ]
 
-        domains = [
-            *(f"https://sam-basket-cdn-{str(i).zfill(2)}mt.geobasket.ru" for i in range(1, 10)),
-            *(f"https://basket-{str(i).zfill(2)}.wbbasket.ru" for i in range(1, 10)),
-            "https://cdn.wbstatic.net",
-            "https://img1.wbstatic.net",
-        ]
-
-        subdirs = ["c516x688", "c800x1000", "c246x328", "big", ""]
-        extensions = ["webp", "jpg", "jpeg"]
-
-        # Собираем ВСЕ возможные URL для первой картинки (1.ext)
-        test_urls = []
-        for vol, part in path_variants:
-            for domain in domains:
-                for subdir in subdirs:
-                    for ext in extensions:
-                        subdir_path = f"/{subdir}" if subdir else ""
-                        test_urls.append((
-                            f"{domain}/vol{vol}/part{part}/{articul}/images{subdir_path}/1.{ext}",
-                            vol, part, subdir, ext
-                        ))
+        est_urls = []
+        nm_id = str(articul)
+        for domain in base_domains:
+            for folder in size_folders:
+                for ext in extensions:
+                    img_path = f"{folder}/{nm_id[:4]}0000/{nm_id[:5]}000/{nm_id}/{1}.{ext}"
+                    full_url = f"{domain}/{img_path}"
+                    test_urls.append((full_url, domain, folder, ext))
 
         async def check_candidate(url_info):
-            url, vol, part, subdir, ext = url_info
-            ok = await self._check_url_is_image(url, timeout=2.5)
-            return (url_info if ok else None)
+            url, domain, folder, ext = url_info
+            if await self._check_url_is_image(url, timeout=2.5):
+                return url_info
+            return None
 
-        # Проверяем все URL одновременно
-        results = await asyncio.gather(*[check_candidate(info) for info in test_urls], return_exceptions=False)
+        results = await asyncio.gather(
+            *[check_candidate(info) for info in test_urls],
+            return_exceptions=True
+        )
 
-        # выбираем первый рабочий вариант
         valid = next((r for r in results if r), None)
-        if valid:
-            url, vol, part, subdir, ext = valid
-            domain = url.split("/vol")[0]
-            subdir_path = f"/{subdir}" if subdir else ""
-            logger.info(
-                f"🖼️ Найден CDN для {articul}: {domain} "
-                f"(vol={vol}, part={part}, subdir='{subdir}', ext={ext})"
-            )
-            return [
-                f"{domain}/vol{vol}/part{part}/{articul}/images{subdir_path}/{i}.{ext}"
-                for i in candidate_idxs[:max_images]
-            ]
+        if not valid:
+            logger.warning(f"⚠️ Не найдено изображений по новым путям для {articul}, fallback на старый")
+            # fallback на ваш старый метод или просто пустой список
+            return []
 
-        # fallback — ничего не нашли
-        logger.warning(f"⚠️ Не удалось найти изображения для {articul}, возвращаем fallback.")
-        vol, part = articul[:3], articul[:5]
-        return [
-            f"https://sam-basket-cdn-03mt.geobasket.ru/vol{vol}/part{part}/{articul}/images/c516x688/{i}.webp"
-            for i in candidate_idxs[:max_images]
-        ]
+        url, domain, folder, ext = valid
+        logger.info(f"🖼️ Найден актуальный CDN: {domain}/{folder}/*. {ext} для {articul}")
+
+        # Строим все нужные картинки
+        images = []
+        base_path = f"{domain}/{folder}/{nm_id[:4]}0000/{nm_id[:5]}000/{nm_id}/"
+        for idx in candidate_idxs:
+            img_url = f"{base_path}{idx}.{ext}"
+            images.append(img_url)
+
+        return images[:max_images]
 
 
     async def parse_api_detail(self, articul: str) -> Dict[str, Any]:
-        """
-        Получение деталей товара через card.wb.ru (v2).
-        Возвращает: id, name, price, basic_price, seller, rating, feedbacks, stocks, stocks_by_size, images.
-        """
         if not self.session:
             await self.setup()
 
-        url = f"https://card.wb.ru/cards/v2/detail?appType=1&curr=rub&dest=-1257786&lang=ru&nm={articul}"
+        url = f"https://card.wb.ru/cards/v4/detail?appType=1&curr=rub&dest=-1257786&spp=0&nm={articul}"
         logger.info(f"📩 Запрос к WB API: {url}")
 
         try:
