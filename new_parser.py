@@ -183,10 +183,13 @@ class WBParser:
             logger.error(f"❌ Ошибка запроса к WB API для артикула {articul}: {e}", exc_info=True)
             return {}
 
-        products = data.get("data", {}).get("products") or []
+        products = data.get("products") or []
         if not products:
-            logger.warning(f"⚠️ В ответе WB API нет products для артикула {articul}")
-            return {}
+            # На всякий случай пробуем старый формат
+            products = data.get("data", {}).get("products") or []
+            if not products:
+                logger.warning(f"⚠️ В ответе WB API нет products для артикула {articul}")
+                return {}
 
         p = products[0]
         sizes = p.get("sizes") or []
