@@ -26,7 +26,7 @@ WEB_APP_URL = "https://wb-artem.vercel.app/"
 BACKEND_URL = "https://api.zepovvv.ru"
 SUPPORT_USERNAME = "@daighj2"
 # CHANNEL_ID = '@wbsellers_test'
-CHANNEL_ID = '@testwbbot_chanel'
+CHANNEL_ID = '@wbsupervygoda'
 PENDING_MESSAGES = {}
 SENT_INVOICES = {}   
 

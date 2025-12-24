@@ -27,7 +27,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(BOT_TOKEN)
 
-CHANNEL_ID = "@testwbbot_chanel" 
+CHANNEL_ID = "@wbsupervygoda" 
 TELEGRAM_PROVIDER_TOKEN=os.getenv("TELEGRAM_PROVIDER_TOKEN")
 PENDING_MESSAGES: dict[str, dict] = {}
 YK_PENDING: dict[str, dict] = {}
