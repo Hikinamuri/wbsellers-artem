@@ -24,14 +24,14 @@ WEB_APP_URL = "https://wb-artem.vercel.app/"
 # WEB_APP_URL = "https://wb-miniapp-demo.loca.lt"
 # BACKEND_URL = "http://127.0.0.1:8000"
 BACKEND_URL = "https://api.zepovvv.ru"
-SUPPORT_USERNAME = "@daighj2"
+SUPPORT_USERNAME = "@zabiroff_rielt"
 # CHANNEL_ID = '@wbsellers_test'
 CHANNEL_ID = '@wbsupervygoda'
 PENDING_MESSAGES = {}
 SENT_INVOICES = {}   
 
 # 🔐 Список Telegram ID администраторов
-ADMIN_IDS = {933791537, 455197004, 810503099, 535437088}  # замени на свои tg_id
+ADMIN_IDS = {933791537, 8025721564, 5374012866, 455197004}  # замени на свои tg_id
 
 # Кэш для хранения результатов парсинга
 parsing_cache = {}
