@@ -59,7 +59,6 @@ class WBParser:
                                 continue
 
                     images: List[str] = []
-                    # Попытки собрать URL-ы картинок, если они уже полные
                     for key in ("images", "imt_images", "pics", "gallery", "media", "mediaFiles"):
                         val = data.get(key)
                         if isinstance(val, list):
@@ -73,8 +72,7 @@ class WBParser:
                         elif isinstance(val, str) and val.startswith(("http://", "https://")):
                             images.append(val)
 
-                    # очистка дубликатов
-                    images = [u for i, u in enumerate(images) if images.index(u) == i]
+                    images = list(dict.fromkeys(images))  # убираем дубликаты, сохраняя порядок
 
                     return {
                         "name": name,
@@ -89,41 +87,30 @@ class WBParser:
         return {}
 
     async def _check_url_is_image(self, url: str, timeout: float = 5.0) -> bool:
-        """
-        Проверка доступности URL-а картинки.
-        Сначала делает HEAD, если HEAD отвечает неудачно — пытает GET с небольшим таймаутом и только заголовки.
-        """
         if not self.session:
             await self.setup()
         try:
-            # HEAD
             async with self.session.head(url, timeout=timeout, allow_redirects=True) as resp:
                 if resp.status == 200:
                     ctype = resp.headers.get("Content-Type", "")
-                    if ctype and ("image" in ctype or "webp" in ctype):
+                    if ctype and "image" in ctype:
                         return True
-                    # иногда WB отвечает без content-type, но статус 200 — считаем рабочим
-                    return True
+                    return True  # WB часто без content-type
         except Exception:
-            # попробуем GET, но не читаем тело полностью
             try:
                 async with self.session.get(url, timeout=timeout, allow_redirects=True) as resp:
                     if resp.status == 200:
-                        ctype = resp.headers.get("Content-Type", "")
-                        if ctype and ("image" in ctype or "webp" in ctype or "jpeg" in ctype or "jpg" in ctype):
-                            return True
-                        # если нет content-type — всё равно принимаем 200
                         return True
             except Exception:
                 return False
         return False
     
     async def _find_valid_images(
-        self, articul: str, candidate_idxs: List[int] = None, max_images: int = 2
+        self, articul: str, candidate_idxs: List[int] = None, max_images: int = 3
     ) -> List[str]:
         """
-        Проверяет все известные CDN (асинхронно и конкурентно),
-        возвращает реально существующие картинки.
+        Универсальный поиск изображений через basket-XX.wbbasket.ru (декабрь 2025)
+        Работает для всех примеров: basket-15, basket-31 и т.д.
         """
         if not self.session:
             await self.setup()
@@ -131,75 +118,54 @@ class WBParser:
         if candidate_idxs is None:
             candidate_idxs = list(range(1, max_images + 1))
 
-        # Схемы: сначала новая, потом старая
-        path_variants = [
-            (articul[:4], articul[:6]),
-            (articul[:3], articul[:5]),
-        ]
+        nm_id = int(articul)  # на всякий случай в int
 
-        domains = [
-            *(f"https://sam-basket-cdn-{str(i).zfill(2)}mt.geobasket.ru" for i in range(1, 10)),
-            *(f"https://basket-{str(i).zfill(2)}.wbbasket.ru" for i in range(1, 10)),
-            "https://cdn.wbstatic.net",
-            "https://img1.wbstatic.net",
-        ]
+        vol = nm_id // 100000
+        part = nm_id // 1000
 
-        subdirs = ["c516x688", "c800x1000", "c246x328", "big", ""]
-        extensions = ["webp", "jpg", "jpeg"]
+        # Расширенный диапазон basket (на 2025 — до 31+, берём с запасом до 40)
+        baskets = list(range(1, 41))
 
-        # Собираем ВСЕ возможные URL для первой картинки (1.ext)
-        test_urls = []
-        for vol, part in path_variants:
-            for domain in domains:
-                for subdir in subdirs:
-                    for ext in extensions:
-                        subdir_path = f"/{subdir}" if subdir else ""
-                        test_urls.append((
-                            f"{domain}/vol{vol}/part{part}/{articul}/images{subdir_path}/1.{ext}",
-                            vol, part, subdir, ext
-                        ))
+        # Приоритет: большие/средние фото + tm (как в твоих примерах)
+        subdirs = ["big", "tm", "c516x688", "c246x328", "c800x1000", ""]  
 
-        async def check_candidate(url_info):
-            url, vol, part, subdir, ext = url_info
-            ok = await self._check_url_is_image(url, timeout=2.5)
-            return (url_info if ok else None)
+        extensions = ["webp", "jpg", "jpeg"]  # webp чаще в новых
 
-        # Проверяем все URL одновременно
-        results = await asyncio.gather(*[check_candidate(info) for info in test_urls], return_exceptions=False)
+        test_urls: List[tuple] = []
+        for basket_num in baskets:
+            domain = f"https://basket-{str(basket_num).zfill(2)}.wbbasket.ru"
+            for subdir in subdirs:
+                for ext in extensions:
+                    subdir_path = f"/{subdir}" if subdir else ""
+                    url = f"{domain}/vol{vol}/part{part}/{nm_id}/images{subdir_path}/1.{ext}"
+                    test_urls.append((url, domain, subdir, ext))
 
-        # выбираем первый рабочий вариант
+        async def check_candidate(info):
+            url, domain, subdir, ext = info
+            if await self._check_url_is_image(url, timeout=2.5):
+                return (domain, subdir, ext)
+            return None
+
+        results = await asyncio.gather(*[check_candidate(info) for info in test_urls])
+
         valid = next((r for r in results if r), None)
-        if valid:
-            url, vol, part, subdir, ext = valid
-            domain = url.split("/vol")[0]
-            subdir_path = f"/{subdir}" if subdir else ""
-            logger.info(
-                f"🖼️ Найден CDN для {articul}: {domain} "
-                f"(vol={vol}, part={part}, subdir='{subdir}', ext={ext})"
-            )
-            return [
-                f"{domain}/vol{vol}/part{part}/{articul}/images{subdir_path}/{i}.{ext}"
-                for i in candidate_idxs[:max_images]
-            ]
+        if not valid:
+            logger.warning(f"⚠️ Изображения не найдены на basket CDN для {articul}")
+            return []  # fallback на card.json
 
-        # fallback — ничего не нашли
-        logger.warning(f"⚠️ Не удалось найти изображения для {articul}, возвращаем fallback.")
-        vol, part = articul[:3], articul[:5]
-        return [
-            f"https://sam-basket-cdn-03mt.geobasket.ru/vol{vol}/part{part}/{articul}/images/c516x688/{i}.webp"
-            for i in candidate_idxs[:max_images]
-        ]
+        domain, subdir, ext = valid
+        subdir_path = f"/{subdir}" if subdir else ""
+        logger.info(f"🖼️ Найден CDN: {domain}/vol{vol}/part{part}/{nm_id}/images{subdir_path}/*.{ext}")
 
+        base_url = f"{domain}/vol{vol}/part{part}/{nm_id}/images{subdir_path}/"
+        images = [f"{base_url}{i}.{ext}" for i in candidate_idxs]
 
+        return images[:max_images]
     async def parse_api_detail(self, articul: str) -> Dict[str, Any]:
-        """
-        Получение деталей товара через card.wb.ru (v2).
-        Возвращает: id, name, price, basic_price, seller, rating, feedbacks, stocks, stocks_by_size, images.
-        """
         if not self.session:
             await self.setup()
 
-        url = f"https://card.wb.ru/cards/v2/detail?appType=1&curr=rub&dest=-1257786&lang=ru&nm={articul}"
+        url = f"https://card.wb.ru/cards/v4/detail?appType=1&curr=rub&dest=-1257786&spp=0&nm={articul}"
         logger.info(f"📩 Запрос к WB API: {url}")
 
         try:
@@ -212,10 +178,14 @@ class WBParser:
             logger.error(f"❌ Ошибка запроса к WB API для артикула {articul}: {e}", exc_info=True)
             return {}
 
-        products = data.get("data", {}).get("products") or []
+        # ИСПРАВЛЕНИЕ: products на верхнем уровне в v4
+        products = data.get("products") or []
         if not products:
-            logger.warning(f"⚠️ В ответе WB API нет products для артикула {articul}")
-            return {}
+            # fallback на старый формат
+            products = data.get("data", {}).get("products") or []
+            if not products:
+                logger.warning(f"⚠️ В ответе WB API нет products для артикула {articul}")
+                return {}
 
         p = products[0]
         sizes = p.get("sizes") or []
@@ -266,12 +236,11 @@ class WBParser:
         total_stocks = sum(i["qty"] for i in stocks_by_size)
 
         # --- Изображения ---
-        images: List[str] = []
         pics_count = int(p.get("pics") or 0)
         if pics_count > 0:
             images = await self._find_valid_images(articul, candidate_idxs=list(range(1, min(pics_count, 3) + 1)))
         else:
-            images = await self._find_valid_images(articul, candidate_idxs=[1, 2], max_images=2)
+            images = await self._find_valid_images(articul, candidate_idxs=[1, 2, 3], max_images=3)
 
         result = {
             "id": p.get("id") or int(articul),
@@ -321,14 +290,13 @@ class WBParser:
         })
 
         # если нет images из API — берем из card.json
-        if not merged.get("images") and card_data.get("images"):
-            merged["images"] = card_data.get("images")
+        if not merged.get("images") or len(merged.get("images")) == 0:
+            if card_data.get("images"):
+                merged["images"] = card_data.get("images")
+                logger.info(f"🔄 Использованы изображения из card.json ({len(merged['images'])})")
 
         if merged.get("supplier") and not merged.get("seller"):
             merged["seller"] = merged.get("supplier")
-
-        # можно удалить сырые данные, если не нужно
-        # merged.pop("raw_product", None)
 
         return merged
 
