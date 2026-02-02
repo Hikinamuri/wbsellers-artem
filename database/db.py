@@ -45,6 +45,11 @@ async def get_session():
 
 async def test_connection():
     """Проверяет соединение при старте"""
-    async with engine.connect() as conn:
-        await conn.execute(text("SELECT 1"))
-        print("✅ Подключение к БД успешно")
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+            print("✅ Подключение к БД успешно")
+            return True
+    except Exception as e:
+        print(f"❌ Ошибка подключения к БД: {e}")
+        return False

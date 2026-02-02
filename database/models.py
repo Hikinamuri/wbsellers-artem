@@ -1,3 +1,4 @@
+# models.py
 from sqlalchemy import (
     Column, Integer, String, Float, Text, DateTime, ForeignKey,
     Enum, BigInteger
@@ -6,7 +7,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
-from .db import Base
+from db import Base  # изменено с относительного импорта
 
 
 class ProductStatus(str, enum.Enum):
@@ -14,7 +15,8 @@ class ProductStatus(str, enum.Enum):
     pending = "Ожидает выкладки"
     posted = "Выложен"
     canceled = "Отменен"
-    
+
+
 class User(Base):
     __tablename__ = "users"
 
