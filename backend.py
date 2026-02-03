@@ -33,8 +33,6 @@ PENDING_MESSAGES: dict[str, dict] = {}
 YK_PENDING: dict[str, dict] = {}
 PROCESSED_PAYMENTS: dict[str, dict] = {} 
 
-bot = Bot(token=BOT_TOKEN)
-
 app = FastAPI() 
 
 scheduler = AsyncIOScheduler()
@@ -161,7 +159,7 @@ async def create_payment(request: Request):
         "description": description,
         "currency": "RUB",
         "prices": prices,
-        "provider_token": os.getenv("TELEGRAM_PROVIDER_TOKEN"),
+        "provider_token": TELEGRAM_PROVIDER_TOKEN,
         "metadata": safe_meta,
 
         "provider_data": {
